@@ -174,7 +174,7 @@ void put_file(int fd, char *put_name)
 		fread(file,sz,1,pfile);
 		fclose(pfile);
 		std::stringstream ss;
-		printf("file %send",file);		
+		//printf("file %s",file);		
 		//md5
 		unsigned char digest[MD5_DIGEST_LENGTH];	
 		MD5((unsigned char*)file, strlen(file), (unsigned char*)&digest);  
@@ -289,18 +289,33 @@ void get_file(int fd, char *get_name, char *save_name)
 		bufp += nsofar;
 		if(*(bufp-1) == '\n')
 		{	
+			*(bufp-1) = 0;
 			*bufp = 0;					
 			break;
 		}			
 	}
 	printf("%s",buf);
-	char * success = strtok(buf,"\n");
-	char * filename = strtok(NULL,"\n");				
-	char * thirdLine = strtok(NULL,"\n");			
-	char* operation = strtok (firstLine," ");
-	printf("operation %s\n",operation);	
-	char* filename = strtok (NULL," ");	
-	printf("filename %s\n",filename);
+	char * firstLine = strtok(buf,"\n");	
+	char * size = strtok(NULL,"\n");					
+	char * thirdLine = strtok(NULL,"\n");	
+	char * status = strtok(firstLine," ");	
+	if(!strcmp(status,"OK")){
+		char* filename = firstLine + 3;
+		char* checkSum = thirdLine + 4;
+		char* file = thirdLine + strlen(thirdLine) + 1;
+		//std::cout<<"filename "<<filename<<"\ncheckSum "<<checkSum<<"\nfile "<<file;
+		unsigned char digest[MD5_DIGEST_LENGTH];
+		MD5((unsigned char*)file, strlen(file), (unsigned char*)&digest);  
+		char mdString[33]; 
+		for(int i = 0; i < 16; i++)
+			 sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
+		//printf("file %s\n",file);	
+		if(!strcmp(checkSum,mdString)){
+			printf("checked\n");
+		}
+
+	}
+	
 	
 }
 

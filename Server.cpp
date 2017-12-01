@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <errno.h>
+#include <climits>
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -14,8 +15,10 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <iostream>
 #include "support.h"
 #include "Server.h"
+#include<map>
 
 
 void help(char *progname)
@@ -121,10 +124,35 @@ void handle_requests(int listenfd, void (*service_function)(int, int), int param
  * file_server() - Read a request from a socket, satisfy the request, and
  *                 then close the connection.
  */
+
+ struct Node
+ {
+	std::string file;
+	int count;
+	Node(std::string f, int c):count(c),file(f)
+	{
+		
+	}
+ };
+std::string findLRU(std::map<std::string, Node*> * LRU){
+	std::map<std::string, Node*>::iterator it = LRU->begin();
+	int min = it->second->count;
+	std::string filename = it->first;
+	while(it!=LRU->end()){
+		if(it->second->count < min){
+			min = it->second->count;
+			filename = it->first;
+		}		
+		it++;
+	}
+	return filename;
+}
 void file_server(int connfd, int lru_size)
 {
 	/* TODO: set up a few static variables here to manage the LRU cache of
 	   files */
+	std::cout<<"lru_size "<<lru_size<<"\n";
+	static std::map<std::string, Node*> LRU;		
 
 	/* TODO: replace following sample code with code that satisfies the
 	   requirements of the assignment */
@@ -136,6 +164,7 @@ void file_server(int connfd, int lru_size)
 		const int MAXLINE = 8192;
 		char*      buf = (char*)malloc(MAXLINE);   /* a place to store text from the client */
 		bzero(buf, MAXLINE);
+
 
 		/* read from socket, recognizing that we may get short counts */
 		char *bufp = buf;              /* current pointer into buffer */
@@ -178,7 +207,8 @@ void file_server(int connfd, int lru_size)
 		char* operation = strtok (firstLine," ");
 		printf("operation %s\n",operation);	
 		char* filename = strtok (NULL," ");	
-		printf("filename %s\n",filename);	
+		printf("filename %s\n",filename);
+
 		if(!strcmp(operation,"PUT")){			
 			char* file = thirdLine + strlen(thirdLine) + 1;
 			char* checkSum = thirdLine + 5;
@@ -206,32 +236,65 @@ void file_server(int connfd, int lru_size)
 			fwrite(file, 1, strlen(file), newfile);
 			fclose(newfile);
 			//printf("finish %i\n",nsofar);
+			std::string f(file);
+			std::string fn(filename);
+			std::cout<<"LRU size "<<lru_size<<"\n";
+			//LRU
+			if(LRU.size()<lru_size){			
+				Node* node = new Node(f,1);
+				LRU[fn] = node;
+				
+			}else{			
+				if(LRU.find(fn) == LRU.end()){
+					std::string LRUfile = findLRU(&LRU);
+					LRU.erase(LRUfile);					
+					Node* node = new Node(f,1);
+					LRU[fn] = node;
+					std::cout<<"remove "<<LRUfile<<"from LRU\n";
+				}else{
+					Node* node = LRU[fn];
+					node->count++;
+					LRU[fn] = node;
+				}
+			}
+			std::cout<<"put "<<fn<<"into LRU\n";
 		}
-		else if(!strcmp(operation,"GET")){	
-			
-			FILE* pfile;
-			pfile = fopen(filename,"r");			
+		else if(!strcmp(operation,"GET")){
+			char* file = NULL;
+			std::string fn(filename);
+			size_t sz;	
+			if(LRU.find(fn) != LRU.end()){
+				const char* temp = LRU[fn]->file.c_str();
+				file = (char*)malloc(strlen(temp));
+				strcpy(file,temp);
+				sz = strlen(file);
+				std::cout<<"get "<<fn<<"from LRU\n";
+			}else{
+				FILE* pfile;
+				pfile = fopen(filename,"r");
+				if(pfile!=NULL){
+					//die("read error: ",strerror(errno));
+					fseek(pfile, 0L, SEEK_END);
+					sz = ftell(pfile);
+					rewind(pfile);			
+					file = (char*)malloc(sz);
+					bzero(file,sz);
+					fread(file,sz,1,pfile);
+					fclose(pfile);
+				}
+			}
 			std::stringstream ss;
-			if(pfile!=NULL){
-				//die("read error: ",strerror(errno));
-				fseek(pfile, 0L, SEEK_END);
-				size_t sz = ftell(pfile);
-				rewind(pfile);			
-				char* file = (char*)malloc(sz);
-				bzero(file,sz);
-				fread(file,sz,1,pfile);
-				fclose(pfile);	
+			if(file!=NULL){
 				unsigned char digest[MD5_DIGEST_LENGTH];
 				MD5((unsigned char*)file, strlen(file), (unsigned char*)&digest);  
 				char mdString[33]; 
 				for(int i = 0; i < 16; i++)
 					 sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
-				printf("md5 %send\n",mdString);		
-				ss<<"OK \n"<<filename<<"\n"<<sz<<"\n"<<"OKC "<<mdString<<"\n"<<file<<"\n";
-				
-			}else{
-				
-				ss<<"No such file";				
+				//printf("md5 %send\n",mdString);		
+				ss<<"OK "<<filename<<"\n"<<sz<<"\n"<<"OKC "<<mdString<<"\n"<<file<<"\n";
+			}		
+			else{				
+				ss<<"No such file\n";				
 			}
 			std::string sss = ss.str();
 			const char* source = sss.c_str();	
@@ -242,7 +305,7 @@ void file_server(int connfd, int lru_size)
 			size_t nremain = strlen(buf);
 			ssize_t nsofar;
 			bufp = buf;	
-			printf("write %s",bufp);			
+			//printf("write %s",bufp);			
 			while(nremain > 0)
 			{
 				if((nsofar = write(connfd, bufp, nremain)) <= 0)
@@ -259,7 +322,7 @@ void file_server(int connfd, int lru_size)
 				
 			}
 		}else {
-			printf("False\n");
+			printf("False operation\n");
 		}		
 	}	
 
@@ -293,7 +356,7 @@ int main(int argc, char **argv)
 	}
 
 	/* open a socket, and start handling requests */
-	int fd = open_server_socket(port);
+	int fd = open_server_socket(port);	
 	handle_requests(fd, file_server, lru_size, multithread);
 
 	exit(0);
