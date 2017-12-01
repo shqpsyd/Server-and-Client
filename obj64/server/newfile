@@ -1,2 +1,20 @@
-q
+CSE303 - Fall 2017
+Assignment #6: Security and Resource Management
+
+Purpose and General Guidelines:
+
+In this assignment, we will gain familiarity with concepts in security and resource management, while also demonstrating more ability with the tasks we've already discussed this semester.
+
+Getting Started
+
+  We provide a tar file with starter code at ~jloew/CSE303/cse303_p6.tgz. As in previous assignments, this code has several files, which contain incomplete functions. You must complete the functions in the files to satisfy the requirements of the assignment.
+
+By default, the starter code will allow the client to interact with the server via stdin. Messages sent from the client will be reported server side and will be echoed back to the client who will output that message back. You can use this behavior to control directly what the server is sent for testing purposes. You may want to keep a copy of this basic client around.
+
+Task #0: Tell us who you are
+
+You should edit the 'team.c' file to provide your name and email address. Until you do this, none of your programs will execute.
+
+
+
 
