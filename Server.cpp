@@ -191,7 +191,7 @@ void file_server(int connfd, int lru_size)
 			/* update pointer for next bit of reading */
 			bufp += nsofar;
 			nremain -= nsofar;
-			if(*(bufp-1) == '\n')
+			if(*(char*)(bufp-1) == '\n')
 			{
 				*(bufp - 1) = 0;
 				*bufp = 0;				
@@ -232,6 +232,7 @@ void file_server(int connfd, int lru_size)
 					}
 					nsofar = 0;
 				}
+			//delete bufp;
 			FILE* newfile = fopen(filename,"wb+");
 			fwrite(file, 1, strlen(file), newfile);
 			fclose(newfile);
@@ -296,8 +297,10 @@ void file_server(int connfd, int lru_size)
 			else{				
 				ss<<"No such file\n";				
 			}
+			//delete file;
 			std::string sss = ss.str();
 			const char* source = sss.c_str();	
+			//delete buf;
 			buf = (char*)malloc(strlen(source));
 			bzero(buf,strlen(buf));
 			strcpy(buf,source);
@@ -320,10 +323,12 @@ void file_server(int connfd, int lru_size)
 				nremain -= nsofar;
 				bufp += nsofar;
 				
-			}
+			}			
 		}else {
 			printf("False operation\n");
-		}		
+			
+		}	
+		//delete buf;	
 	}	
 
 	
