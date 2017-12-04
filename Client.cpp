@@ -116,8 +116,7 @@ void put_file(int fd, char *put_name)
 		size_t nremain = strlen(buf);
 		ssize_t nsofar;
 		char *bufp = buf;	
-		while(nremain > 0)
-		{
+		
 			if((nsofar = write(fd, bufp, nremain)) <= 0)
 			{
 				if(errno != EINTR)
@@ -127,10 +126,20 @@ void put_file(int fd, char *put_name)
 				}
 				nsofar = 0;
 			}
+			
 			nremain -= nsofar;
 			bufp += nsofar;
+			//char eof[1] = {std::char_traits<char>::eof()}; 
+			if((nsofar = write(fd,"\0" , 1)) <= 0)
+			{
+				if(errno != EINTR)
+				{
+					fprintf(stderr, "Write error: %s\n", strerror(errno));
+					exit(0);
+				}
+				nsofar = 0;
+			}
 			
-		}
 		buf = (char*)malloc(MAXLINE);
 		bufp = buf;
 		bzero(bufp,strlen(bufp));
@@ -143,14 +152,11 @@ void put_file(int fd, char *put_name)
 					die("read error: ", strerror(errno));
 				}
 				continue;
-			}	
+			}
 			nremain -= nsofar;
 			bufp += nsofar;
-			if(*(bufp-1) == '\n')
-			{	
-				*bufp = 0;					
-				break;
-			}		
+			break;
+				
 		}
 		printf("%s", buf);
 			

@@ -151,7 +151,7 @@ void file_server(int connfd, int lru_size)
 {
 	/* TODO: set up a few static variables here to manage the LRU cache of
 	   files */
-	std::cout<<"lru_size "<<lru_size<<"\n";
+	//std::cout<<"lru_size "<<lru_size<<"\n";
 	static std::map<std::string, Node*> LRU;		
 
 	/* TODO: replace following sample code with code that satisfies the
@@ -160,48 +160,51 @@ void file_server(int connfd, int lru_size)
 	/* sample code: continually read lines from the client, and send them
 	   back to the client immediately */
 	
-	while(1){
+	
 		const int MAXLINE = 8192;
-		char*      buf = (char*)malloc(MAXLINE);   /* a place to store text from the client */
+		void*      buf = malloc(MAXLINE);   /* a place to store text from the client */
 		bzero(buf, MAXLINE);
 
 
 		/* read from socket, recognizing that we may get short counts */
-		char *bufp = buf;              /* current pointer into buffer */
-		ssize_t nremain = MAXLINE;     /* max characters we can still read */
-		size_t nsofar;                 /* characters read so far */
+		void *bufp = buf;              /* current pointer into buffer */
+		size_t nsofar;				 /* characters read so far */
 		while (1)
 		{
 			/* read some data; swallow EINTRs */
-			if((nsofar = read(connfd, bufp, nremain)) < 0)
+			if((nsofar = read(connfd, bufp, MAXLINE)) > 0)
 			{
 				
+					if(*(char*)(bufp+nsofar-1) == '\0'){
+						*(char*)(bufp+nsofar-1) = 0;
+						*(char*)(bufp+nsofar-1) = 0;
+						break;
+					}				
+					//std::cout<<"final"<<*(bufp+nsofar-1);
+					bufp+=nsofar;
+						
+			}
+			
+			/* end service to this client on EOF */
+			else if(nsofar == 0)
+			{
+				fprintf(stderr, "received EOF\n");
+				break;
+			}else {
 				if(errno != EINTR)
 				{
 					die("read error: ", strerror(errno));					
 				}
 				continue;
 			}
-			/* end service to this client on EOF */
-			if(nsofar == 0)
-			{
-				fprintf(stderr, "received EOF\n");
-				return;
-			}
+			
 			/* update pointer for next bit of reading */
 			bufp += nsofar;
-			nremain -= nsofar;
-			if(*(char*)(bufp-1) == '\n')
-			{
-				*(bufp - 1) = 0;
-				*bufp = 0;				
-				break;
-			}
 		}
-		printf("server received %d bytes\n", MAXLINE-nremain);
+		printf("server received %d bytes\n", nsofar);
 		printf("%s",buf);
-		
-		char * firstLine = strtok(buf,"\n");
+		char* buf1 = (char*)buf;
+		char * firstLine = strtok(buf1,"\n");
 		char * size = strtok(NULL,"\n");				
 		char * thirdLine = strtok(NULL,"\n");			
 		char* operation = strtok (firstLine," ");
@@ -221,16 +224,15 @@ void file_server(int connfd, int lru_size)
 			if(!strcmp(checkSum,mdString)){
 				printf("checked\n");
 			}
-			bufp = (char*)malloc(MAXLINE);
-			nremain = MAXLINE;			
-			strcpy(bufp,"ok\n");
-			if((nsofar = write(connfd, bufp, strlen(bufp))) <= 0)
+			char* bufp1 = (char*)malloc(MAXLINE);
+						
+			strcpy(bufp1,"ok\n");
+			if((nsofar = write(connfd, bufp1, strlen(bufp1))) <= 0)
 				{
 					if(errno != EINTR)
 					{
 						die("Write error: ", strerror(errno));
 					}
-					nsofar = 0;
 				}
 			//delete bufp;
 			FILE* newfile = fopen(filename,"wb+");
@@ -301,17 +303,17 @@ void file_server(int connfd, int lru_size)
 			std::string sss = ss.str();
 			const char* source = sss.c_str();	
 			//delete buf;
-			buf = (char*)malloc(strlen(source));
-			bzero(buf,strlen(buf));
-			strcpy(buf,source);
+			char* buf1 = (char*)malloc(strlen(source));
+			bzero(buf1,strlen(buf1));
+			strcpy(buf1,source);
 			//send file	
-			size_t nremain = strlen(buf);
+			size_t nremain = strlen(buf1);
 			ssize_t nsofar;
-			bufp = buf;	
+			char* bufp1 = buf1;	
 			//printf("write %s",bufp);			
 			while(nremain > 0)
 			{
-				if((nsofar = write(connfd, bufp, nremain)) <= 0)
+				if((nsofar = write(connfd, bufp1, nremain)) <= 0)
 				{
 					if(errno != EINTR)
 					{
@@ -321,15 +323,15 @@ void file_server(int connfd, int lru_size)
 					nsofar = 0;
 				}
 				nremain -= nsofar;
-				bufp += nsofar;
+				bufp1 += nsofar;
 				
 			}			
 		}else {
 			printf("False operation\n");
 			
 		}	
-		//delete buf;	
-	}	
+		delete buf1;	
+	
 
 	
 }
