@@ -24,7 +24,54 @@
 #include "support.h"
 #include "Client.h"
 #include<iostream>
+int padding = RSA_PKCS1_PADDING;
 
+RSA * createRSA(unsigned char * key,int pub)
+{
+   RSA *rsa= NULL;
+   BIO *keybio ;
+   keybio = BIO_new_mem_buf(key, -1);
+   if (keybio==NULL)
+   {
+	   printf( "Failed to create key BIO");
+	   return 0;
+   }
+   if(pub)
+   {
+	   rsa = PEM_read_bio_RSA_PUBKEY(keybio, &rsa,NULL, NULL);
+   }
+   else
+   {
+	   rsa = PEM_read_bio_RSAPrivateKey(keybio, &rsa,NULL, NULL);
+   }
+   if(rsa == NULL)
+   {
+	   printf( "Failed to create RSA");
+   }
+
+   return rsa;
+}
+int public_encrypt(unsigned char * data,int data_len,unsigned char * key, unsigned char *encrypted)
+{
+   RSA * rsa = createRSA(key,1);
+   int result = RSA_public_encrypt(data_len,data,encrypted,rsa,padding);
+   return result;
+}
+int private_decrypt(unsigned char * enc_data,int data_len,unsigned char * key, unsigned char *decrypted)
+{
+   RSA * rsa = createRSA(key,0);
+   int  result = RSA_private_decrypt(data_len,enc_data,decrypted,rsa,padding);
+   return result;
+}
+
+void printLastError(char *msg)
+{
+   char * err = (char*)malloc(130);;
+   ERR_load_crypto_strings();
+   ERR_error_string(ERR_get_error(), err);
+   printf("%s ERROR: %s\n",msg, err);
+   free(err);
+}
 void help(char *progname)
 {
 	printf("Usage: %s [OPTIONS]\n", progname);
@@ -99,53 +146,95 @@ void put_file(int fd, char *put_name)
 		fread(file,sz,1,pfile);
 		fclose(pfile);
 		std::stringstream ss;
-		//printf("file %s",file);		
+		//printf("file %s",file);
+
+		//rsa encrypted
+		FILE* pfile1 = NULL;
+		pfile1 = fopen("public.pem","rb");
+		fseek(pfile1, 0L, SEEK_END);
+		size_t sz1 = ftell(pfile1);
+		rewind(pfile1);
+		char* publicKey = (char*)malloc(sz1);
+		bzero(publicKey,sz1);
+		fread(publicKey,sz1,1,pfile1);
+		fclose(pfile1);	
+		//printf("%s",publicKey);
+
+		int unit = 128;
+		unsigned char* encrypted = (unsigned char*)malloc(unit*2);
+		unsigned char* outData = (unsigned char*)malloc(((int)(sz/unit)+1)*2*unit);
+		//std::cout<<((int)(sz/unit)+1)*256<<"\n";
+		bzero(outData, 2*unit);
+		int encrypted_length = 0;
+		char* text = (char*)malloc(unit);
+		int i = 0;	
+		//std::cout<<file;
+		for(; i < (int)(sz/unit); i++){
+			bzero(text,strlen(text));
+			strncpy(text,file + i*unit,unit);
+			//printf("%s",text);
+			bzero(encrypted,2*unit);
+			encrypted_length += public_encrypt((unsigned char*)text,strlen(text),(unsigned char*)publicKey,encrypted);		
+			if(encrypted_length == -1)
+			{
+					printLastError("Public Encrypt failed ");
+					exit(0);
+			}
+			memcpy(outData+2*unit*i,encrypted,2*unit);		
+		}
+		if(sz - i*unit > 0){
+			bzero(text,strlen(text));
+			
+			strncpy(text,file + i*unit,sz - i*unit);
+			//std::cout<<text;
+			bzero(encrypted,2*unit);
+			encrypted_length += public_encrypt((unsigned char*)text,strlen(text),(unsigned char*)publicKey,encrypted);
+			if(encrypted_length == -1)
+			{
+					printLastError("Public Encrypt failed ");
+					exit(0);
+			}
+			memcpy(outData+i*2*unit,encrypted,2*unit);
+		}
+		printf("Encrypted length =%d\n",encrypted_length);		
 		//md5
 		unsigned char digest[MD5_DIGEST_LENGTH];	
-		MD5((unsigned char*)file, strlen(file), (unsigned char*)&digest);  
+		MD5(outData, encrypted_length, (unsigned char*)&digest);  
 		char mdString[33]; 
 		for(int i = 0; i < 16; i++)
 			 sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
-		ss<<"PUT "<<put_name<<"\n"<<sz<<"\n"<<"PUTC "<<mdString<<"\n"<<file<<"\n";
+		ss<<"PUT "<<put_name<<"\n"<<encrypted_length<<"\n"<<"PUTC "<<mdString<<"\n";
 		std::string sss = ss.str();
-		const char* source = sss.c_str();	
-		char* buf = (char*)malloc(strlen(source));
-		strcpy(buf,source);
-		//printf("%s",buf);
+		const char* head = sss.c_str();			
+		size_t totalSize = strlen(head)+encrypted_length;
+		void* buf = (void*)malloc(totalSize);		
+		bzero(buf,totalSize);
+		memcpy(buf,head,strlen(head));
+		memcpy(buf+strlen(head),outData,encrypted_length);		
+		//printf("%s",(char*)buf);
 		//send file	
-		size_t nremain = strlen(buf);
-		ssize_t nsofar;
-		char *bufp = buf;	
-		
-			if((nsofar = write(fd, bufp, nremain)) <= 0)
+			
+		int flag;
+			if((flag = write(fd, buf, totalSize)) <= 0)
 			{
 				if(errno != EINTR)
 				{
 					fprintf(stderr, "Write error: %s\n", strerror(errno));
 					exit(0);
 				}
-				nsofar = 0;
 			}
-			
-			nremain -= nsofar;
-			bufp += nsofar;
 			//char eof[1] = {std::char_traits<char>::eof()}; 
-			if((nsofar = write(fd,"\0" , 1)) <= 0)
+			if((flag = write(fd,"end" , 3)) <= 0)
 			{
 				if(errno != EINTR)
 				{
 					fprintf(stderr, "Write error: %s\n", strerror(errno));
 					exit(0);
 				}
-				nsofar = 0;
-			}
-			
-		buf = (char*)malloc(MAXLINE);
-		bufp = buf;
-		bzero(bufp,strlen(bufp));
-		nremain = MAXLINE;
+			}	
+		bzero(buf,totalSize);		
 		while(1){
-			if((nsofar = read(fd, bufp, nremain)) < 0)
+			if((flag= read(fd, buf, MAXLINE)) < 0)
 			{
 				if(errno != EINTR)
 				{
@@ -153,17 +242,16 @@ void put_file(int fd, char *put_name)
 				}
 				continue;
 			}
-			nremain -= nsofar;
-			bufp += nsofar;
-			break;
+			printf("%s", (char*)buf);
+			delete buf;
+			return;
 				
 		}
-		printf("%s", buf);
+		
 			
 			
 		
 	
-	//read file
 }
 
 /*
@@ -173,70 +261,91 @@ void put_file(int fd, char *put_name)
 void get_file(int fd, char *get_name, char *save_name)
 {
 	/* TODO: implement a proper solution, instead of calling the echo() client */
-	//echo_client(fd);
-	const int MAXLINE = 8192;
+	
+	const int MAXLINE = 100;
 	std::stringstream ss;
 	ss<<"GET "<<get_name<<"\n";
 	std::string sss = ss.str();
 	const char* source = sss.c_str();
-	char* buf = (char*)malloc(strlen(source));
-	strcpy(buf,source);
-	
+	char* buf1 = (char*)malloc(strlen(source));
+	strcpy(buf1,source);
+	int flag;
 	//send file	
-	size_t nremain = strlen(buf);
-	ssize_t nsofar;
-	char *bufp = buf;	
-	while(nremain > 0)
-	{
-		if((nsofar = write(fd, bufp, nremain)) <= 0)
+	
+		if((flag = write(fd, buf1, MAXLINE)) <= 0)
 		{
 			if(errno != EINTR)
 			{
 				fprintf(stderr, "Write error: %s\n", strerror(errno));
 				exit(0);
 			}
-			nsofar = 0;
 		}
-		nremain -= nsofar;
-		bufp += nsofar;
-		
-	}
-	//printf("%i",nremain);
-	//fflush;
-	buf = (char*)malloc(MAXLINE);
-	bufp = buf;
-	bzero(bufp,strlen(bufp));
-	nremain = MAXLINE;
-	while(1){
-		if((nsofar = read(fd, bufp, nremain)) < 0)
+		if((flag = write(fd,"end" , 3)) <= 0)
 		{
 			if(errno != EINTR)
 			{
-				die("read error: ", strerror(errno));
+				fprintf(stderr, "Write error: %s\n", strerror(errno));
+				exit(0);
+			}
+		}
+	//printf("%i",nremain);
+	//fflush;
+	void* buf = malloc(0) ;   /* a place to store text from the client */
+	
+
+
+	/* read from socket, recognizing that we may get short counts */
+	void *bufp = malloc(MAXLINE);              /* current pointer into buffer */
+	size_t nsofar;				 /* characters read so far */
+	size_t recvSize = 0;
+	for (int i = 0;1;i++)
+	{
+		/* read some data; swallow EINTRs */
+		if((nsofar = read(fd, bufp, MAXLINE)) > 0)
+		{
+			recvSize+=nsofar;					
+				buf = realloc(buf,MAXLINE*i + nsofar);
+				if(!strcmp((char*)(bufp+nsofar-3),"end")){
+					//*(char*)(bufp+nsofar-1) = 0;
+					bzero(bufp+nsofar-3,3);
+					memcpy(buf+i*MAXLINE,bufp,nsofar);
+
+					break;
+				}
+				memcpy(buf+i*MAXLINE,bufp,nsofar);
+				bzero(bufp,MAXLINE);												
+		}
+		
+		/* end service to this client on EOF */
+		else if(nsofar == 0)
+		{
+			fprintf(stderr, "received EOF\n");
+			break;
+		}else {
+			if(errno != EINTR)
+			{
+				die("read error: ", strerror(errno));					
 			}
 			continue;
 		}
-		nremain -= nsofar;
-		bufp += nsofar;
-		if(*(bufp-1) == '\n')
-		{	
-			*(bufp-1) = 0;
-			*bufp = 0;					
-			break;
-		}			
+		
+		/* update pointer for next bit of reading */
 	}
-	printf("%s",buf);
-	char * firstLine = strtok(buf,"\n");	
-	char * size = strtok(NULL,"\n");					
+	printf("client received %d bytes\n", recvSize);
+	//printf("%s",(char*)buf);
+	char * firstLine = strtok((char*)buf,"\n");	
+	char * size1 = strtok(NULL,"\n");
+					
 	char * thirdLine = strtok(NULL,"\n");	
 	char * status = strtok(firstLine," ");	
 	if(!strcmp(status,"OK")){
+		size_t size = atoi(size1);	
 		char* filename = firstLine + 3;
 		char* checkSum = thirdLine + 4;
-		char* file = thirdLine + strlen(thirdLine) + 1;
+		unsigned char* file = (unsigned char*)(thirdLine + strlen(thirdLine) + 1);
 		//std::cout<<"filename "<<filename<<"\ncheckSum "<<checkSum<<"\nfile "<<file;
 		unsigned char digest[MD5_DIGEST_LENGTH];
-		MD5((unsigned char*)file, strlen(file), (unsigned char*)&digest);  
+		MD5(file, size, (unsigned char*)&digest);  
 		char mdString[33]; 
 		for(int i = 0; i < 16; i++)
 			 sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
@@ -244,7 +353,39 @@ void get_file(int fd, char *get_name, char *save_name)
 		if(!strcmp(checkSum,mdString)){
 			printf("checked\n");
 		}
+		FILE* pfile2 = NULL;
+		pfile2 = fopen("private.pem","rb");
+		fseek(pfile2, 0L, SEEK_END);
+		size_t sz2 = ftell(pfile2);
+		rewind(pfile2);
+		char* privateKey = (char*)malloc(sz2);
+		bzero(privateKey,sz2);
+		fread(privateKey,sz2,1,pfile2);
+		fclose(pfile2);
+		//printf("%s",privateKey);		
+		int unit = 256;
+		unsigned char* decrypted = (unsigned char*)malloc(unit);
+		unsigned char* encrypted = (unsigned char*)malloc(unit);
+		std::string getFile;
+		int i = 0;
+		int decrypted_length = 0;
+		for(; i < int(size/unit); i++){
+			bzero(encrypted,unit);
+			memcpy(encrypted,file + i*unit,unit);
+			bzero(decrypted,unit);
+			int num = private_decrypt(encrypted,256,(unsigned char*)privateKey, decrypted);
+			decrypted_length+=num;
+			if(num == -1)
+			{
+					printLastError("Private Decrypt failed ");
+					exit(0);
+			}
+			getFile+=(char*)decrypted;
+		}
+		std::cout<<getFile;
 
+	}else{
+		std::cout<<(char*)buf<<" "<<(char*)(buf+3);
 	}
 	
 	

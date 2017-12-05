@@ -127,9 +127,10 @@ void handle_requests(int listenfd, void (*service_function)(int, int), int param
 
  struct Node
  {
-	std::string file;
+	unsigned char* file;
 	int count;
-	Node(std::string f, int c):count(c),file(f)
+	size_t size;
+	Node(unsigned char* f, int c,size_t s):count(c),file(f),size(s)
 	{
 		
 	}
@@ -161,28 +162,33 @@ void file_server(int connfd, int lru_size)
 	   back to the client immediately */
 	
 	
-		const int MAXLINE = 8192;
-		void*      buf = malloc(MAXLINE);   /* a place to store text from the client */
-		bzero(buf, MAXLINE);
+		const int MAXLINE = 100;
+		void* buf = malloc(0) ;   /* a place to store text from the client */
+		
 
 
 		/* read from socket, recognizing that we may get short counts */
-		void *bufp = buf;              /* current pointer into buffer */
+		void *bufp = malloc(MAXLINE);              /* current pointer into buffer */
 		size_t nsofar;				 /* characters read so far */
-		while (1)
+		size_t recvSize = 0;
+		for (int i = 0;1;i++)
 		{
 			/* read some data; swallow EINTRs */
 			if((nsofar = read(connfd, bufp, MAXLINE)) > 0)
 			{
-				
-					if(*(char*)(bufp+nsofar-1) == '\0'){
-						*(char*)(bufp+nsofar-1) = 0;
-						*(char*)(bufp+nsofar-1) = 0;
+				//std::cout<<(char*)(bufp+nsofar-3)<<"\n";
+				recvSize+=nsofar;					
+					buf = realloc(buf,MAXLINE*i + nsofar);					
+					//if(*(char*)(bufp+nsofar-1)=='\0'&&*(char*)(bufp+nsofar-2)=='\n'&&*(char*)(bufp+nsofar-3)=='\0'){
+					if(!strcmp((char*)(bufp+nsofar-3),"end")){
+						//*(char*)(bufp+nsofar-1) = 0;
+						bzero(bufp+nsofar-3,3);
+						memcpy(buf+i*MAXLINE,bufp,nsofar);
+
 						break;
-					}				
-					//std::cout<<"final"<<*(bufp+nsofar-1);
-					bufp+=nsofar;
-						
+					}
+					memcpy(buf+i*MAXLINE,bufp,nsofar);
+					bzero(bufp,MAXLINE);												
 			}
 			
 			/* end service to this client on EOF */
@@ -199,24 +205,23 @@ void file_server(int connfd, int lru_size)
 			}
 			
 			/* update pointer for next bit of reading */
-			bufp += nsofar;
 		}
-		printf("server received %d bytes\n", nsofar);
-		printf("%s",buf);
-		char* buf1 = (char*)buf;
-		char * firstLine = strtok(buf1,"\n");
-		char * size = strtok(NULL,"\n");				
+		printf("server received %d bytes\n", recvSize);
+		//printf("%s",buf);		
+		char * firstLine = strtok((char*)buf,"\n");
+		char* sizetemp = strtok(NULL,"\n");				
 		char * thirdLine = strtok(NULL,"\n");			
 		char* operation = strtok (firstLine," ");
 		printf("operation %s\n",operation);	
 		char* filename = strtok (NULL," ");	
 		printf("filename %s\n",filename);
 
-		if(!strcmp(operation,"PUT")){			
-			char* file = thirdLine + strlen(thirdLine) + 1;
+		if(!strcmp(operation,"PUT")){	
+			int size = atoi(sizetemp);		
+			unsigned char* file = (unsigned char*)(thirdLine + strlen(thirdLine) + 1);
 			char* checkSum = thirdLine + 5;
 			unsigned char digest[MD5_DIGEST_LENGTH];
-			MD5((unsigned char*)file, strlen(file), (unsigned char*)&digest);  
+			MD5((unsigned char*)file, size, (unsigned char*)&digest);  
 			char mdString[33]; 
 			for(int i = 0; i < 16; i++)
 				 sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
@@ -224,34 +229,37 @@ void file_server(int connfd, int lru_size)
 			if(!strcmp(checkSum,mdString)){
 				printf("checked\n");
 			}
-			char* bufp1 = (char*)malloc(MAXLINE);
+			char* buf1 = (char*)malloc(MAXLINE);
 						
-			strcpy(bufp1,"ok\n");
-			if((nsofar = write(connfd, bufp1, strlen(bufp1))) <= 0)
+			strcpy(buf1,"ok\n");
+			if((nsofar = write(connfd, buf1, strlen(buf1))) <= 0)
 				{
 					if(errno != EINTR)
 					{
 						die("Write error: ", strerror(errno));
 					}
 				}
-			//delete bufp;
+			
 			FILE* newfile = fopen(filename,"wb+");
-			fwrite(file, 1, strlen(file), newfile);
+			fwrite(file, 1,size , newfile);
 			fclose(newfile);
+			delete buf1;
 			//printf("finish %i\n",nsofar);
-			std::string f(file);
+			unsigned char* f = (unsigned char*)malloc(size);
+			memcpy(f,file,size);
 			std::string fn(filename);
 			std::cout<<"LRU size "<<lru_size<<"\n";
 			//LRU
 			if(LRU.size()<lru_size){			
-				Node* node = new Node(f,1);
+				Node* node = new Node(f,1,size);
 				LRU[fn] = node;
 				
 			}else{			
 				if(LRU.find(fn) == LRU.end()){
 					std::string LRUfile = findLRU(&LRU);
+					delete LRU[LRUfile]->file;
 					LRU.erase(LRUfile);					
-					Node* node = new Node(f,1);
+					Node* node = new Node(f,1,size);
 					LRU[fn] = node;
 					std::cout<<"remove "<<LRUfile<<"from LRU\n";
 				}else{
@@ -263,74 +271,91 @@ void file_server(int connfd, int lru_size)
 			std::cout<<"put "<<fn<<"into LRU\n";
 		}
 		else if(!strcmp(operation,"GET")){
-			char* file = NULL;
+			
+			unsigned char* file = NULL;
 			std::string fn(filename);
 			size_t sz;	
 			if(LRU.find(fn) != LRU.end()){
-				const char* temp = LRU[fn]->file.c_str();
-				file = (char*)malloc(strlen(temp));
+				/*unsigned char* temp = LRU[fn]->file;
+				file = (unsigned char*)malloc(strlen(temp));
 				strcpy(file,temp);
 				sz = strlen(file);
-				std::cout<<"get "<<fn<<"from LRU\n";
+				std::cout<<"get "<<fn<<"from LRU\n";*/
+				file = LRU[fn]->file;
+				sz = LRU[fn]->size;
 			}else{
-				FILE* pfile;
-				pfile = fopen(filename,"r");
+				
+				FILE* pfile = NULL;
+				pfile = fopen(filename,"rb");
 				if(pfile!=NULL){
-					//die("read error: ",strerror(errno));
 					fseek(pfile, 0L, SEEK_END);
 					sz = ftell(pfile);
 					rewind(pfile);			
-					file = (char*)malloc(sz);
+					file = (unsigned char*)malloc(sz);
 					bzero(file,sz);
 					fread(file,sz,1,pfile);
 					fclose(pfile);
 				}
 			}
+			
 			std::stringstream ss;
 			if(file!=NULL){
 				unsigned char digest[MD5_DIGEST_LENGTH];
-				MD5((unsigned char*)file, strlen(file), (unsigned char*)&digest);  
+				MD5(file, sz, (unsigned char*)&digest);  
 				char mdString[33]; 
 				for(int i = 0; i < 16; i++)
 					 sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
 				//printf("md5 %send\n",mdString);		
-				ss<<"OK "<<filename<<"\n"<<sz<<"\n"<<"OKC "<<mdString<<"\n"<<file<<"\n";
+				ss<<"OK "<<filename<<"\n"<<sz<<"\n"<<"OKC "<<mdString<<"\n";
 			}		
 			else{				
 				ss<<"No such file\n";				
 			}
 			//delete file;
 			std::string sss = ss.str();
-			const char* source = sss.c_str();	
+			const char* head = sss.c_str();	
 			//delete buf;
-			char* buf1 = (char*)malloc(strlen(source));
-			bzero(buf1,strlen(buf1));
-			strcpy(buf1,source);
+			void* buf1 = NULL;
+			int totalSize = strlen(head);
+			if(file!=NULL){				
+				totalSize += sz;
+				buf1 = malloc(totalSize);			
+				bzero(buf1,totalSize);
+				memcpy(buf1,head,strlen(head));
+				memcpy(buf1+strlen(head),file,sz);
+			}else{
+				buf1 = malloc(totalSize);			
+				bzero(buf1,strlen(head));
+				memcpy(buf1,head,strlen(head));
+			}
+			
 			//send file	
-			size_t nremain = strlen(buf1);
-			ssize_t nsofar;
-			char* bufp1 = buf1;	
-			//printf("write %s",bufp);			
-			while(nremain > 0)
+				
+			//printf("write to client");			
+			
+			if((nsofar = write(connfd, buf1, totalSize)) <= 0)
 			{
-				if((nsofar = write(connfd, bufp1, nremain)) <= 0)
+				if(errno != EINTR)
 				{
-					if(errno != EINTR)
-					{
 						fprintf(stderr, "Write error: %s\n", strerror(errno));
 						exit(0);
-					}
-					nsofar = 0;
 				}
-				nremain -= nsofar;
-				bufp1 += nsofar;
-				
-			}			
+			}
+			delete buf1;
+			if((nsofar = write(connfd, "end", 3)) <= 0)
+			{
+				if(errno != EINTR)
+				{
+						fprintf(stderr, "Write error: %s\n", strerror(errno));
+						exit(0);
+				}
+			}
+							
 		}else {
 			printf("False operation\n");
 			
 		}	
-		delete buf1;	
+			
 	
 
 	
