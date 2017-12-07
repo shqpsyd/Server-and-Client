@@ -40,10 +40,10 @@ int open_server_socket(int port);
  *                     to service_function.  Note that this is not a
  *                     multi-threaded server.
  */
-void handle_requests(int listenfd, void (*service_function)(int, int), int param, bool multithread);
+void handle_requests(int listenfd, void (*service_function)(int, int,bool), int param, bool multithread);
 
 /*
  * file_server() - Read a request from a socket, satisfy the request, and
  *                 then close the connection.
  */
-void file_server(int connfd, int lru_size);
+void file_server(int connfd, int lru_size,bool multithread);

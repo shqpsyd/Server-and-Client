@@ -18,7 +18,13 @@
 #include <iostream>
 #include "support.h"
 #include "Server.h"
-#include<map>
+#include <vector>
+#include <map>
+#include <time.h>
+#include <pthread.h>
+#include "ThreadPool.h"
+#define MaxClient 1024
+#define ThreadsNum 4
 
 
 void help(char *progname)
@@ -40,6 +46,7 @@ void die(const char *msg1, char *msg2)
  * open_server_socket() - Open a listening socket and return its file
  *                        descriptor, or terminate the program
  */
+
 int open_server_socket(int port)
 {
 	int                listenfd;    /* the server's listening file descriptor */
@@ -84,8 +91,9 @@ int open_server_socket(int port)
  *                     to service_function.  Note that this is not a
  *                     multi-threaded server.
  */
-void handle_requests(int listenfd, void (*service_function)(int, int), int param, bool multithread)
+void handle_requests(int listenfd, void (*service_function)(int, int,bool), int param, bool multithread)
 {
+	ThreadPool pool(4);
 	while(1)
 	{
 		/* block until we get a connection */
@@ -108,16 +116,15 @@ void handle_requests(int listenfd, void (*service_function)(int, int), int param
 		}
 		char *haddrp = inet_ntoa(clientaddr.sin_addr);
 		printf("server connected to %s (%s)\n", hp->h_name, haddrp);
-
-		/* serve requests */
-		service_function(connfd, param);
-
-		/* clean up, await new connection */
-		if(close(connfd) < 0)
-		{
-			die("Error in close(): ", strerror(errno));
+		if(!multithread){
+			/* serve requests */
+			service_function(connfd, param,multithread);
+			/* clean up, await new connection */
+		}else{
+			pool.enqueue(service_function,connfd, param,multithread);
 		}
 	}
+	
 }
 
 /*
@@ -128,32 +135,37 @@ void handle_requests(int listenfd, void (*service_function)(int, int), int param
  struct Node
  {
 	unsigned char* file;
-	int count;
+	time_t count;
 	size_t size;
-	Node(unsigned char* f, int c,size_t s):count(c),file(f),size(s)
+	Node(unsigned char* f, time_t t,size_t s):count(t),file(f),size(s)
 	{
 		
 	}
  };
 std::string findLRU(std::map<std::string, Node*> * LRU){
 	std::map<std::string, Node*>::iterator it = LRU->begin();
-	int min = it->second->count;
+	time_t early = it->second->count;
 	std::string filename = it->first;
 	while(it!=LRU->end()){
-		if(it->second->count < min){
-			min = it->second->count;
+		if(difftime(it->second->count,early)<0){
+			early = it->second->count;
 			filename = it->first;
 		}		
 		it++;
 	}
 	return filename;
 }
-void file_server(int connfd, int lru_size)
+void file_server(int connfd, int lru_size,bool multithread)
 {
+
 	/* TODO: set up a few static variables here to manage the LRU cache of
 	   files */
 	//std::cout<<"lru_size "<<lru_size<<"\n";
-	static std::map<std::string, Node*> LRU;		
+	static pthread_rwlock_t fileMap_lock = PTHREAD_RWLOCK_INITIALIZER;
+	static std::map<std::string,pthread_rwlock_t> fileMap;
+	static pthread_rwlock_t lru_lock = PTHREAD_RWLOCK_INITIALIZER;
+	static std::map<std::string, Node*> LRU;
+			
 
 	/* TODO: replace following sample code with code that satisfies the
 	   requirements of the assignment */
@@ -161,6 +173,7 @@ void file_server(int connfd, int lru_size)
 	/* sample code: continually read lines from the client, and send them
 	   back to the client immediately */
 	
+	   //usleep(30000000);
 	
 		const int MAXLINE = 100;
 		void* buf = malloc(0) ;   /* a place to store text from the client */
@@ -239,63 +252,103 @@ void file_server(int connfd, int lru_size)
 						die("Write error: ", strerror(errno));
 					}
 				}
+			std::string fn(filename);
+			if(multithread){
+				pthread_rwlock_wrlock(&fileMap_lock);
+				if(fileMap.find(fn)==fileMap.end()){
+					pthread_rwlock_t flock = PTHREAD_RWLOCK_INITIALIZER;
+					fileMap[fn] = flock;								
+				}
+				pthread_rwlock_wrlock(&(fileMap[fn]));
+				pthread_rwlock_unlock(&fileMap_lock);
+				FILE* newfile = fopen(filename,"wb+");
+				fwrite(file, 1,size , newfile);
+				fclose(newfile);
+				delete buf1;
+				pthread_rwlock_unlock(&(fileMap[fn]));
+			}else{
+				FILE* newfile = fopen(filename,"wb+");
+				fwrite(file, 1,size , newfile);
+				fclose(newfile);
+				delete buf1;
+			}
 			
-			FILE* newfile = fopen(filename,"wb+");
-			fwrite(file, 1,size , newfile);
-			fclose(newfile);
-			delete buf1;
 			//printf("finish %i\n",nsofar);
 			unsigned char* f = (unsigned char*)malloc(size);
 			memcpy(f,file,size);
-			std::string fn(filename);
-			std::cout<<"LRU size "<<lru_size<<"\n";
+			
+			
 			//LRU
-			if(LRU.size()<lru_size){			
-				Node* node = new Node(f,1,size);
-				LRU[fn] = node;
-				
-			}else{			
-				if(LRU.find(fn) == LRU.end()){
-					std::string LRUfile = findLRU(&LRU);
-					delete LRU[LRUfile]->file;
-					LRU.erase(LRUfile);					
-					Node* node = new Node(f,1,size);
-					LRU[fn] = node;
-					std::cout<<"remove "<<LRUfile<<"from LRU\n";
-				}else{
-					Node* node = LRU[fn];
-					node->count++;
-					LRU[fn] = node;
-				}
+			if(multithread){
+				pthread_rwlock_wrlock(&lru_lock);
 			}
-			std::cout<<"put "<<fn<<"into LRU\n";
+			
+				if(LRU.size()<lru_size){			
+					Node* node = new Node(f,time(NULL),size);
+					LRU[fn] = node;
+					std::cout<<"LRU size "<<LRU.size()<<"\n";
+					std::cout<<"put "<<fn<<"into LRU\n";
+					
+				}else{			
+					if(LRU.find(fn) == LRU.end()){
+						std::string LRUfile = findLRU(&LRU);
+						delete LRU[LRUfile]->file;
+						LRU.erase(LRUfile);					
+						Node* node = new Node(f,time(NULL),size);
+						LRU[fn] = node;
+						std::cout<<"remove "<<LRUfile<<"from LRU\n";
+						std::cout<<"put "<<fn<<"into LRU\n";
+					}else{
+						Node* node = LRU[fn];
+						node->count = time(NULL);
+						LRU[fn] = node;
+						std::cout<<"put "<<fn<<"into LRU\n";
+					}
+				}
+			if(multithread){
+				pthread_rwlock_unlock(&lru_lock);
+			}				
+						
+			
 		}
 		else if(!strcmp(operation,"GET")){
 			
 			unsigned char* file = NULL;
 			std::string fn(filename);
 			size_t sz;	
+			if(multithread){
+				pthread_rwlock_rdlock(&lru_lock);
+			}
 			if(LRU.find(fn) != LRU.end()){
-				/*unsigned char* temp = LRU[fn]->file;
-				file = (unsigned char*)malloc(strlen(temp));
-				strcpy(file,temp);
-				sz = strlen(file);
-				std::cout<<"get "<<fn<<"from LRU\n";*/
 				file = LRU[fn]->file;
 				sz = LRU[fn]->size;
-			}else{
-				
-				FILE* pfile = NULL;
-				pfile = fopen(filename,"rb");
-				if(pfile!=NULL){
-					fseek(pfile, 0L, SEEK_END);
-					sz = ftell(pfile);
-					rewind(pfile);			
-					file = (unsigned char*)malloc(sz);
-					bzero(file,sz);
-					fread(file,sz,1,pfile);
-					fclose(pfile);
+				if(multithread){
+					pthread_rwlock_unlock(&lru_lock);
 				}
+				std::cout<<"get "<<fn<<"from LRU\n";
+			}else{
+				std::cout<<"get "<<fn<<"from file system\n";
+				FILE* pfile = NULL;
+				if(multithread){
+					pthread_rwlock_rdlock(&fileMap[fn]);
+				}
+					pfile = fopen(filename,"rb");
+					if(pfile!=NULL){
+						fseek(pfile, 0L, SEEK_END);
+						sz = ftell(pfile);
+						rewind(pfile);			
+						file = (unsigned char*)malloc(sz);
+						bzero(file,sz);
+						fread(file,sz,1,pfile);
+						fclose(pfile);
+					}
+				if(multithread){
+					pthread_rwlock_unlock(&fileMap[fn]);
+				}	
+							
+				
+
+				
 			}
 			
 			std::stringstream ss;
@@ -355,8 +408,13 @@ void file_server(int connfd, int lru_size)
 			printf("False operation\n");
 			
 		}	
-			
-	
+		int closeFlag = close(connfd);
+		if(closeFlag < 0)
+		{
+			//die("Error in close(): ", strerror(errno));
+			printf("Error in close(): %s", strerror(errno));			
+		}		
+		//return closeFlag+2;//if successful it will return 2 if fail return 1
 
 	
 }
@@ -381,13 +439,19 @@ int main(int argc, char **argv)
 		switch(opt)
 		{
 		case 'h': help(argv[0]); break;
-		case 'l': lru_size = atoi(argv[0]); break;
+		case 'l': lru_size = atoi(optarg); break;
 		case 'm': multithread = true;	break;
 		case 'p': port = atoi(optarg); break;
 		}
 	}
 
 	/* open a socket, and start handling requests */
+	if(multithread==true){
+		printf("enable multithread\n");		
+	}else{
+		printf("disable multithread\n");		
+	}
+	printf("lru_size = %i\n",lru_size);
 	int fd = open_server_socket(port);	
 	handle_requests(fd, file_server, lru_size, multithread);
 
