@@ -33,17 +33,17 @@ all: $(EXEFILES)
 # Rules for building object files
 $(ODIR)/%.o: %.cpp
 	@echo "[CC] $< --> $@"
-	@$(CC) $< -o $@ -c $(CFLAGS)
+	@$(CC) $< -o $@ -c $(CFLAGS) -std=c++11 -pthread -I .
 
 # Rules for building object files
 $(ODIR)/%.o: %.c
 	@echo "[CC] $< --> $@"
-	@$(CC) $< -o $@ -c $(CFLAGS)
+	@$(CC) $< -o $@ -c $(CFLAGS) -std=c++11 -pthread -I .
 
 # Rules for building executables
 $(ODIR)/%: $(ODIR)/%.o $(OFILES)
 	@echo "[LD] $< --> $@"
-	@$(CC) $^ -o $@ $(LDFLAGS)
+	@$(CC) $^ -o $@ $(LDFLAGS) -std=c++11 -pthread -I .
 
 # clean by clobbering the build folder
 clean:
