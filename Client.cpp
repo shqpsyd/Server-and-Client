@@ -23,7 +23,8 @@
 #include <unistd.h>
 #include "support.h"
 #include "Client.h"
-#include<iostream>
+#include <fstream>
+#include <iostream>
 int padding = RSA_PKCS1_PADDING;
 
 RSA * createRSA(unsigned char * key,int pub)
@@ -382,7 +383,11 @@ void get_file(int fd, char *get_name, char *save_name)
 			}
 			getFile+=(char*)decrypted;
 		}
-		std::cout<<getFile;
+		//std::cout<<getFile;
+		std::fstream save_file;
+        save_file.open(save_name, std::fstream::out | std::fstream::binary);
+        save_file<<getFile;
+        save_file.close();
 
 	}else{
 		std::cout<<(char*)buf<<" "<<(char*)(buf+3);
