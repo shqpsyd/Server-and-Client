@@ -173,7 +173,7 @@ void file_server(int connfd, int lru_size,bool multithread)
 	/* sample code: continually read lines from the client, and send them
 	   back to the client immediately */
 	
-	   //usleep(30000000);
+	    usleep(30000000);
 	
 		const int MAXLINE = 100;
 		void* buf = malloc(0) ;   /* a place to store text from the client */
@@ -240,7 +240,7 @@ void file_server(int connfd, int lru_size,bool multithread)
 				 sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
 			//printf("file %s\n",file);	
 			if(!strcmp(checkSum,mdString)){
-				printf("checked\n");
+				printf("md5 checked\n");
 			}
 			char* buf1 = (char*)malloc(MAXLINE);
 						
@@ -287,7 +287,7 @@ void file_server(int connfd, int lru_size,bool multithread)
 					Node* node = new Node(f,time(NULL),size);
 					LRU[fn] = node;
 					std::cout<<"LRU size "<<LRU.size()<<"\n";
-					std::cout<<"put "<<fn<<"into LRU\n";
+					std::cout<<"put "<<fn<<" into LRU\n";
 					
 				}else{			
 					if(LRU.find(fn) == LRU.end()){
@@ -296,13 +296,13 @@ void file_server(int connfd, int lru_size,bool multithread)
 						LRU.erase(LRUfile);					
 						Node* node = new Node(f,time(NULL),size);
 						LRU[fn] = node;
-						std::cout<<"remove "<<LRUfile<<"from LRU\n";
-						std::cout<<"put "<<fn<<"into LRU\n";
+						std::cout<<"remove "<<LRUfile<<" from LRU\n";
+						std::cout<<"put "<<fn<<" into LRU\n";
 					}else{
 						Node* node = LRU[fn];
 						node->count = time(NULL);
 						LRU[fn] = node;
-						std::cout<<"put "<<fn<<"into LRU\n";
+						std::cout<<"put "<<fn<<" into LRU\n";
 					}
 				}
 			if(multithread){
@@ -325,9 +325,9 @@ void file_server(int connfd, int lru_size,bool multithread)
 				if(multithread){
 					pthread_rwlock_unlock(&lru_lock);
 				}
-				std::cout<<"get "<<fn<<"from LRU\n";
+				std::cout<<"get "<<fn<<" from LRU\n";
 			}else{
-				std::cout<<"get "<<fn<<"from file system\n";
+				std::cout<<"get "<<fn<<" from file system\n";
 				FILE* pfile = NULL;
 				if(multithread){
 					pthread_rwlock_rdlock(&fileMap[fn]);

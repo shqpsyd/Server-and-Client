@@ -34,7 +34,7 @@ RSA * createRSA(unsigned char * key,int pub)
    keybio = BIO_new_mem_buf(key, -1);
    if (keybio==NULL)
    {
-	   printf( "Failed to create key BIO");
+	   printf( "Failed to create key BIO\n");
 	   return 0;
    }
    if(pub)
@@ -47,7 +47,7 @@ RSA * createRSA(unsigned char * key,int pub)
    }
    if(rsa == NULL)
    {
-	   printf( "Failed to create RSA");
+	   printf( "Failed to create RSA\n");
    }
 
    return rsa;
@@ -67,7 +67,7 @@ int private_decrypt(unsigned char * enc_data,int data_len,unsigned char * key, u
 
 void printLastError(char *msg)
 {
-   char * err = (char*)malloc(130);;
+   char * err = (char*)malloc(130);
    ERR_load_crypto_strings();
    ERR_error_string(ERR_get_error(), err);
    printf("%s ERROR: %s\n",msg, err);
@@ -352,7 +352,7 @@ void get_file(int fd, char *get_name, char *save_name)
 			 sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
 		//printf("file %s\n",file);	
 		if(!strcmp(checkSum,mdString)){
-			printf("checked\n");
+			printf("md5 checked\n");
 		}
 		FILE* pfile2 = NULL;
 		pfile2 = fopen("private.pem","rb");
