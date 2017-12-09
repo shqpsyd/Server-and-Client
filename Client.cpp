@@ -23,8 +23,8 @@
 #include <unistd.h>
 #include "support.h"
 #include "Client.h"
+#include<iostream>
 #include <fstream>
-#include <iostream>
 int padding = RSA_PKCS1_PADDING;
 
 RSA * createRSA(unsigned char * key,int pub)
@@ -385,10 +385,9 @@ void get_file(int fd, char *get_name, char *save_name)
 		}
 		//std::cout<<getFile;
 		std::fstream save_file;
-        save_file.open(save_name, std::fstream::out | std::fstream::binary);
-        save_file<<getFile;
-        save_file.close();
-
+		save_file.open(save_name, std::fstream::out | std::fstream::binary);
+		save_file<<getFile;
+		save_file.close();
 	}else{
 		std::cout<<(char*)buf<<" "<<(char*)(buf+3);
 	}
@@ -426,16 +425,19 @@ int main(int argc, char **argv)
 	}
 
 	/* open a connection to the server */
+	//int fd = connect_to_server(server, port);
 	int fd = connect_to_server(server, port);
-
 	/* put or get, as appropriate */
 	if(put_name)
 	{
 		put_file(fd, put_name);
 	}
-	else
+	else if(get_name and save_name)
 	{
 		get_file(fd, get_name, save_name);
+	}
+	else{
+		printf("ERROR: illegal command\n");
 	}
 
 	/* close the socket */

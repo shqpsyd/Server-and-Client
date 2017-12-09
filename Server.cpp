@@ -93,7 +93,7 @@ int open_server_socket(int port)
  */
 void handle_requests(int listenfd, void (*service_function)(int, int,bool), int param, bool multithread)
 {
-	ThreadPool pool(4);
+	ThreadPool pool(ThreadsNum);
 	while(1)
 	{
 		/* block until we get a connection */
@@ -142,7 +142,7 @@ void handle_requests(int listenfd, void (*service_function)(int, int,bool), int 
 		
 	}
  };
-std::string findLRU(std::map<std::string, Node*> * LRU){
+ std::string findLRU(std::map<std::string, Node*> * LRU){
 	std::map<std::string, Node*>::iterator it = LRU->begin();
 	time_t early = it->second->count;
 	std::string filename = it->first;
@@ -173,7 +173,7 @@ void file_server(int connfd, int lru_size,bool multithread)
 	/* sample code: continually read lines from the client, and send them
 	   back to the client immediately */
 	
-	    usleep(30000000);
+	   //usleep(30000000);
 	
 		const int MAXLINE = 100;
 		void* buf = malloc(0) ;   /* a place to store text from the client */
@@ -228,7 +228,7 @@ void file_server(int connfd, int lru_size,bool multithread)
 		printf("operation %s\n",operation);	
 		char* filename = strtok (NULL," ");	
 		printf("filename %s\n",filename);
-
+		if(recvSize != 0){
 		if(!strcmp(operation,"PUT")){	
 			int size = atoi(sizetemp);		
 			unsigned char* file = (unsigned char*)(thirdLine + strlen(thirdLine) + 1);
@@ -279,6 +279,7 @@ void file_server(int connfd, int lru_size,bool multithread)
 			
 			
 			//LRU
+			if(lru_size != 0){
 			if(multithread){
 				pthread_rwlock_wrlock(&lru_lock);
 			}
@@ -308,8 +309,7 @@ void file_server(int connfd, int lru_size,bool multithread)
 			if(multithread){
 				pthread_rwlock_unlock(&lru_lock);
 			}				
-						
-			
+		}				
 		}
 		else if(!strcmp(operation,"GET")){
 			
@@ -319,7 +319,7 @@ void file_server(int connfd, int lru_size,bool multithread)
 			if(multithread){
 				pthread_rwlock_rdlock(&lru_lock);
 			}
-			if(LRU.find(fn) != LRU.end()){
+			if(lru_size != 0 and LRU.find(fn) != LRU.end()){
 				file = LRU[fn]->file;
 				sz = LRU[fn]->size;
 				if(multithread){
@@ -405,9 +405,13 @@ void file_server(int connfd, int lru_size,bool multithread)
 			}
 							
 		}else {
-			printf("False operation\n");
-			
-		}	
+				printf("ERROR: False operation\n");
+			}
+		
+		}
+		else{
+			printf("ERROR: client closed without sending messages\n");
+		}
 		int closeFlag = close(connfd);
 		if(closeFlag < 0)
 		{
